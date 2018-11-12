@@ -1,3 +1,3 @@
 package demo3
 
-class Request (var count: Byte = 0, val requestmarker:String = "", var jurisdictions:List<Jurisdiction>)
+class Request (var count: Byte = 0, val requestmarker:String = "", var jurisdictions:List<Jurisdiction>? = null)

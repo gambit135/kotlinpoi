@@ -165,7 +165,7 @@ fun writeExcelReport() {
         //println(i)
         val row = sheet.getRow(i + 1) ?: sheet.createRow(i + 1)
         if (lootCounter == 500) {
-            lootCounter = 0;
+            lootCounter = 0
         } else {
 
             val timeCell = setStringValueOnCell(
