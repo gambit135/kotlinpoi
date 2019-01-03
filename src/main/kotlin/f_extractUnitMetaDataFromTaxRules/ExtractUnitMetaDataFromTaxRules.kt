@@ -1,20 +1,20 @@
-package demo3
+package f_extractUnitMetaDataFromTaxRules
 
-import demo2.setStringValueOnCell
-import demo2.writeFile
+import b_findUnitsToSuscribe.setStringValueOnCell
+import b_findUnitsToSuscribe.writeFile
 import org.apache.poi.xssf.usermodel.XSSFRow
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.File
 import java.util.*
 import kotlin.collections.HashMap
 
-const val workingFolder = "/Users/atellez/Documents/To-Do/redeliveryBug/FindDuplicateRequestMarkers/"
+const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
 const val fileOutExtension = ".xlsx"
-const val fileName = "unitRequestMarkerTaxRules"
+const val csvInputFileName = "myLatestAlenia"
 
-const val excelReportByUnitFileName = "affectedUnits_03-10-2018_09-11-2018"
-const val excelReportByStateFileName = "affectedUnitsByState_03-10-2018_09-11-2018"
+const val excelReportByUnitFileName = "AlenyaUnits_27-12-2018_REPORT"
+const val excelReportByStateFileName = "AlenyaUnits_27-12-2018_REPORT"
 fun getDefaultFullXLSXFilePath(fileName: String) = workingFolder + fileName + fileOutExtension
 
 var totalLines = 0
@@ -23,6 +23,7 @@ var totalLines = 0
 //Store successfully subscribed query result
 var uniqueUnits = HashSet<String>()
 val metaMap4 = HashMap<String, UnitMetaData>()
+var unitsWithMalformedUrl = HashMap<String, UnitMetaData>()
 
 
 var totallyAffectedUnits: Map<String, UnitMetaData> = HashMap()
@@ -32,7 +33,6 @@ var unitsWithEmptyRequests: Map<String, UnitMetaData> = HashMap()
 
 
 fun main(args: Array<String>) {
-//    approach2()
     approach4()
 
 
@@ -50,12 +50,13 @@ fun extractUnitsFromPairs(unitRequestMarkerPair: String) {
 
 fun approach4() {
     readFileLineByLineUsingForEachLine4()
+    markMalformedUrlUnits()
     completeMetaData()
     writeReports4()
 }
 
 fun readFileLineByLineUsingForEachLine4() {
-    val file = File(workingFolder + fileName + fileInExtension)
+    val file = File(workingFolder + csvInputFileName + fileInExtension)
     val bufferedReader = file.bufferedReader()
 
     //Skip log headers
@@ -64,14 +65,19 @@ fun readFileLineByLineUsingForEachLine4() {
     bufferedReader.forEachLine {
         val tokens = it.split(",")
         if (tokens.isNotEmpty()) {
+            var malformedUrlMessage = false
+            var unit = tokens[0]
+            val lastIndexOfQuotes = unit.lastIndexOf("\"")
+            if (lastIndexOfQuotes < 0) {
+//                println(it)
+            } else {
+                unit = unit.substring(1..lastIndexOfQuotes - 1)
+                //println(unit)
+            }
 
-//            val unitWithRequestMarkerKey = tokens[0] + tokens[1]
-            val unit = tokens[0]
-
-            val requestMarker = tokens[1]
             val taxRulesStringBuilder = StringBuilder()
             tokens.forEachIndexed { index, token ->
-                if (index > 1) {
+                if (index > 0) {
                     taxRulesStringBuilder.append(token)
                     taxRulesStringBuilder.append(",")
                 }
@@ -83,25 +89,23 @@ fun readFileLineByLineUsingForEachLine4() {
             if (unitMetaData == null) {
                 unitMetaData = UnitMetaData()
                 unitMetaData.unitUrl = unit
-                unitMetaData.requestMarkerOccurences = HashMap()
+                unitMetaData.malformedUrl = malformedUrlMessage
             }
 
-            //Set requestMarker occurrence
-            if (unitMetaData.requestMarkerOccurences!![requestMarker] == null) {
-                unitMetaData.requestMarkerOccurences!![requestMarker] = 0
-            }
-            unitMetaData.requestMarkerOccurences!![requestMarker] = (1 + unitMetaData.requestMarkerOccurences!![requestMarker]!!)
-                    .toByte()
+
             //Set Rules
             if (rawTaxRules.length > 5) {
                 if (unitMetaData.metaListOfTaxRuleJurisdictions == null) {
                     unitMetaData.metaListOfTaxRuleJurisdictions = LinkedList()
                 }
                 unitMetaData.metaListOfTaxRuleJurisdictions!!.add(extractAllJurisdictions(rawTaxRules))
-            } else {
-                unitMetaData.hasEmptyRequests = true
             }
-            metaMap4[unit] = unitMetaData
+            if (unit.indexOf("/units/") < 0) {
+                unitMetaData.malformedUrl = true
+                unitsWithMalformedUrl[unit] = unitMetaData
+            } else {
+                metaMap4[unit] = unitMetaData
+            }
             totalLines++
         }
     }
@@ -134,27 +138,28 @@ fun extractJurisdictions(jurisdictionStringBuilder: StringBuilder, jurisdictions
     return jurisdictions
 }
 
+fun markMalformedUrlUnits(): Unit {
+    unitsWithMalformedUrl.forEach { t, _ ->
+        metaMap4.forEach {
+            //If the current unit contains one malformedUrl unit
+            if (it.key.indexOf(t) > -1) {
+                it.value.malformedUrl = true
+            }
+        }
+    }
+}
+
 fun completeMetaData() {
-    unitsWithEmptyRequests = metaMap4.filter { it.value.hasEmptyRequests }
-    unitsWithRepeatedRequests = metaMap4.filter { it.value.requestMarkerOccurences!!.values.max()!! > 1 }
-    unitsWithRepeatedAndEmptyRequests = metaMap4.filter {
-        it.value.hasEmptyRequests && it.value.requestMarkerOccurences!!.values.max()!! > 1
-    }
-    totallyAffectedUnits = metaMap4.filter {
-        it.value.hasEmptyRequests || it.value.requestMarkerOccurences!!.values.max()!! > 1
-    }
 
     println("Total requests: $totalLines")
     println("Unique units: ${metaMap4.keys.size}")
-    println("Units with repeated requests: ${unitsWithRepeatedRequests.size}")
-    println("Units with empty requests: ${unitsWithEmptyRequests.size}")
-    println("Units with repeated and empty requests: ${unitsWithRepeatedAndEmptyRequests.size}")
-    println("Totally affected units: ${totallyAffectedUnits.size}")
+    println("Marlformed URL units: ${unitsWithMalformedUrl.keys.size}")
 
-    totallyAffectedUnits.forEach { unitUrl, unitMetaData ->
+    metaMap4.forEach { unitUrl, unitMetaData ->
         unitMetaData.state = extractJurisdictionNameFromLevel(unitMetaData, "STATE")
         unitMetaData.district = extractJurisdictionNameFromLevel(unitMetaData, "DISTRICT")
         unitMetaData.county = extractJurisdictionNameFromLevel(unitMetaData, "COUNTY")
+        unitMetaData.country = extractJurisdictionNameFromLevel(unitMetaData, "COUNTRY")
         unitMetaData.city = extractJurisdictionNameFromLevel(unitMetaData, "CITY")
     }
 }
@@ -168,7 +173,7 @@ fun writeReports4() {
 
 fun writeByStateExcelReport() {
     //GroupByState
-    val groupBy = totallyAffectedUnits.values.groupBy { it.state }
+    val groupBy = metaMap4.values.groupBy { it.state }
 
     val excelReport = XSSFWorkbook()
     val sheet = excelReport.createSheet()
@@ -176,7 +181,7 @@ fun writeByStateExcelReport() {
     var i = 0
     writeByUnitExcelReportHeaders(sheet.getRow(0) ?: sheet.createRow(0))
     groupBy.forEach { city, units ->
-        units.forEach {unitMetaData ->
+        units.forEach { unitMetaData ->
             val row = sheet.getRow(i + 1) ?: sheet.createRow(i + 1)
 
             val unit = setStringValueOnCell(
@@ -184,33 +189,33 @@ fun writeByStateExcelReport() {
                     cell = row.getCell(0) ?: row.createCell(0),
                     row = row,
                     index = 0)
-            val hasEmpty = setStringValueOnCell(
-                    value = unitMetaData.hasEmptyRequests.toString(),
+            val countryJurisdiction = setStringValueOnCell(
+                    value = unitMetaData.country,
                     cell = row.getCell(1) ?: row.createCell(1),
                     row = row,
                     index = 1)
-            val countryJurisdiction = setStringValueOnCell(
-                    value = unitMetaData.country,
+            val stateJurisdiction = setStringValueOnCell(
+                    value = unitMetaData.state,
                     cell = row.getCell(2) ?: row.createCell(2),
                     row = row,
                     index = 2)
-            val stateJurisdiction = setStringValueOnCell(
-                    value = unitMetaData.state,
+            val districtJurisdiction = setStringValueOnCell(
+                    value = unitMetaData.district,
                     cell = row.getCell(3) ?: row.createCell(3),
                     row = row,
                     index = 3)
-            val districtJurisdiction = setStringValueOnCell(
-                    value = unitMetaData.district,
+            val countyJurisdiction = setStringValueOnCell(
+                    value = unitMetaData.county,
                     cell = row.getCell(4) ?: row.createCell(4),
                     row = row,
                     index = 4)
-            val countyJurisdiction = setStringValueOnCell(
-                    value = unitMetaData.county,
+            val cityJurisdiction = setStringValueOnCell(
+                    value = unitMetaData.city,
                     cell = row.getCell(5) ?: row.createCell(5),
                     row = row,
                     index = 5)
-            val cityJurisdiction = setStringValueOnCell(
-                    value = unitMetaData.city,
+            val hasMalformedUrl = setStringValueOnCell(
+                    value = if (unitMetaData.malformedUrl == true) "true" else "",
                     cell = row.getCell(6) ?: row.createCell(6),
                     row = row,
                     index = 6)
@@ -227,33 +232,33 @@ fun writeByUnitExcelReportHeaders(row: XSSFRow) {
             cell = row.getCell(0) ?: row.createCell(0),
             row = row,
             index = 0)
-    val hasEmpty = setStringValueOnCell(
-            value = "hasEmptyRequests",
+    val countryJurisdiction = setStringValueOnCell(
+            value = "COUNTRY",
             cell = row.getCell(1) ?: row.createCell(1),
             row = row,
             index = 1)
-    val countryJurisdiction = setStringValueOnCell(
-            value = "COUNTRY",
+    val stateJurisdiction = setStringValueOnCell(
+            value = "STATE",
             cell = row.getCell(2) ?: row.createCell(2),
             row = row,
             index = 2)
-    val stateJurisdiction = setStringValueOnCell(
-            value = "STATE",
+    val districtJurisdiction = setStringValueOnCell(
+            value = "DISTRICT",
             cell = row.getCell(3) ?: row.createCell(3),
             row = row,
             index = 3)
-    val districtJurisdiction = setStringValueOnCell(
-            value = "DISTRICT",
+    val countyJurisdiction = setStringValueOnCell(
+            value = "COUNTY",
             cell = row.getCell(4) ?: row.createCell(4),
             row = row,
             index = 4)
-    val countyJurisdiction = setStringValueOnCell(
-            value = "COUNTY",
+    val cityJurisdiction = setStringValueOnCell(
+            value = "CITY",
             cell = row.getCell(5) ?: row.createCell(5),
             row = row,
             index = 5)
-    val cityJurisdiction = setStringValueOnCell(
-            value = "CITY",
+    val hasMalformedUrl = setStringValueOnCell(
+            value = "MalformedUrlInMessage",
             cell = row.getCell(6) ?: row.createCell(6),
             row = row,
             index = 6)
@@ -265,7 +270,7 @@ fun writeByUnitExcelReport() {
 
     var i = 0
     writeByUnitExcelReportHeaders(sheet.getRow(0) ?: sheet.createRow(0))
-    totallyAffectedUnits.forEach { unitUrl, unitMetaData ->
+    metaMap4.forEach { unitUrl, unitMetaData ->
         val row = sheet.getRow(i + 1) ?: sheet.createRow(i + 1)
 
         val unit = setStringValueOnCell(
@@ -274,33 +279,33 @@ fun writeByUnitExcelReport() {
                 row = row,
                 index = 0)
 
-        val hasEmpty = setStringValueOnCell(
-                value = unitMetaData.hasEmptyRequests.toString(),
+        val countryJurisdiction = setStringValueOnCell(
+                value = unitMetaData.country,
                 cell = row.getCell(1) ?: row.createCell(1),
                 row = row,
                 index = 1)
-        val countryJurisdiction = setStringValueOnCell(
-                value = unitMetaData.country,
+        val stateJurisdiction = setStringValueOnCell(
+                value = unitMetaData.state,
                 cell = row.getCell(2) ?: row.createCell(2),
                 row = row,
                 index = 2)
-        val stateJurisdiction = setStringValueOnCell(
-                value = unitMetaData.state,
+        val districtJurisdiction = setStringValueOnCell(
+                value = unitMetaData.district,
                 cell = row.getCell(3) ?: row.createCell(3),
                 row = row,
                 index = 3)
-        val districtJurisdiction = setStringValueOnCell(
-                value = unitMetaData.district,
+        val countyJurisdiction = setStringValueOnCell(
+                value = unitMetaData.county,
                 cell = row.getCell(4) ?: row.createCell(4),
                 row = row,
                 index = 4)
-        val countyJurisdiction = setStringValueOnCell(
-                value = unitMetaData.county,
+        val cityJurisdiction = setStringValueOnCell(
+                value = unitMetaData.city,
                 cell = row.getCell(5) ?: row.createCell(5),
                 row = row,
                 index = 5)
-        val cityJurisdiction = setStringValueOnCell(
-                value = unitMetaData.city,
+        val hasMalformedUrl = setStringValueOnCell(
+                value = if (unitMetaData.malformedUrl == true) "true" else "",
                 cell = row.getCell(6) ?: row.createCell(6),
                 row = row,
                 index = 6)

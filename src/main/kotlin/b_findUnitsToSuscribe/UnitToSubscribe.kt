@@ -1,4 +1,4 @@
-package demo2
+package b_findUnitsToSuscribe
 
 data class UnitToSubscribe (var unitUrl: String = ""){
     var time:String = ""
