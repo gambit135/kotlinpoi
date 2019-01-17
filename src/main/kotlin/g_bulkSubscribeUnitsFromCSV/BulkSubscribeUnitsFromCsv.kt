@@ -14,7 +14,7 @@ import kotlin.math.floor
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
 const val fileOutExtension = ".xlsx"
-const val csvInputFileName = "units_to_bulksubscribe"
+const val csvInputFileName = "Copy of Bad Street Address 1 Values"
 
 
 const val batchSize = 500
@@ -52,6 +52,7 @@ fun coroutinesApproach() = runBlocking {
             callSuscriptionOnListOfBatches(listOfBatchesOfUnitsToSubscribe)
             listOfBatchesOfUnitsToSubscribe = listOfFailedBatches
         }
+
     } while (!listOfFailedBatches.isEmpty())
 }
 
@@ -67,6 +68,7 @@ fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatchOf500>) {
         } else {
             listOfSuccessfulBatches.addLast(batch)
             subscribedSoFar += batch.arrayOfUnits.size
+            println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe")
         }
     }
 }
@@ -81,7 +83,7 @@ fun loadUnitsToBulkSubscribe() {
     val bufferedReader = file.bufferedReader()
 
     //Skip log headers
-//    bufferedReader.readLine()
+    bufferedReader.readLine()
 
     var totalLines = 0
     var unitsOnPage = 0
@@ -96,6 +98,8 @@ fun loadUnitsToBulkSubscribe() {
             }
 
             var unit = tokens[0]
+            //remove whitespaces
+            unit =  unit.replace("\\s".toRegex(), "")
             currentBatch.arrayOfUnits[unitsOnPage] = unit
             unitsOnPage++
 
