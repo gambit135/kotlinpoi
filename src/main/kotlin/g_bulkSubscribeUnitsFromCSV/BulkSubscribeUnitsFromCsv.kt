@@ -13,8 +13,7 @@ import kotlin.math.floor
 
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
-const val fileOutExtension = ".xlsx"
-const val csvInputFileName = "Copy of Bad Street Address 1 Values"
+const val csvInputFileName = "Unit URLs to Resubscribe 02.08.19"
 
 
 const val batchSize = 500
@@ -27,12 +26,11 @@ var listOfBatchesOfUnitsToSubscribe: LinkedList<UnitBatchOf500> = LinkedList()
 var listOfFailedBatches: LinkedList<UnitBatchOf500> = LinkedList()
 var listOfSuccessfulBatches: LinkedList<UnitBatchOf500> = LinkedList()
 
-var tempStringArray: Array<String> = Array(25000) { "" }
 
 val JSON = MediaType.parse("application/json; charset=utf-8")
 
-const val bulkSubscribeProdUrl = "http://proxley-v2-production-3.10.0.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
-const val dummyBody = "[\"/units/0001/13509679-f997-4a3a-b1c5-4c5c896144c6\"]"
+const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
+const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 
 fun main(args: Array<String>) {
     coroutinesApproach()
@@ -40,7 +38,6 @@ fun main(args: Array<String>) {
 
 fun coroutinesApproach() = runBlocking {
     loadUnitsToBulkSubscribe()
-    filterEmptyFromBatch(listOfBatchesOfUnits.last)
 
     println("no. of batches: " + listOfBatchesOfUnits.size)
 
@@ -148,8 +145,8 @@ fun bisectBatch(batch: UnitBatchOf500): MutableList<UnitBatchOf500> {
     var halves: MutableList<UnitBatchOf500> = LinkedList()
 
     if (batch.arrayOfUnits.size > 1) {
-        var half1: UnitBatchOf500 = UnitBatchOf500()
-        var half2: UnitBatchOf500 = UnitBatchOf500()
+        var half1 = UnitBatchOf500()
+        var half2 = UnitBatchOf500()
 
         var lowerFirstHalf = 0
         var higherFirstHalf = 0
