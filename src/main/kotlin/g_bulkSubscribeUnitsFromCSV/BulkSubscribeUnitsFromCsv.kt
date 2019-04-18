@@ -13,10 +13,15 @@ import kotlin.math.floor
 
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
-const val csvInputFileName = "Unit URLs to Resubscribe 02.08.19"
+const val csvInputFileName = "Maui Properties_test"
 
+//const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
+const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 
+val readOffset = 0
+const val lengthOfUnitUrl = 48
 const val batchSize = 500
+val unitsFailedToOnboardErrorMessage = "The following units failed to onboard:"
 
 var subscribedSoFar = 0
 var totalUnitsToSubscribe = 0
@@ -28,9 +33,7 @@ var listOfSuccessfulBatches: LinkedList<UnitBatchOf500> = LinkedList()
 
 
 val JSON = MediaType.parse("application/json; charset=utf-8")
-
-const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
-const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
+val gson = Gson()
 
 fun main(args: Array<String>) {
     coroutinesApproach()
@@ -55,24 +58,47 @@ fun coroutinesApproach() = runBlocking {
 
 fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatchOf500>) {
     list.forEach { batch ->
-        filterEmptyFromBatch(batch)
-        var body = buildBody(batch.arrayOfUnits)
-        var status = okHttpClientPost(bulkSubscribeProdUrl, body)
-        if (status != 204) {
-            bisectBatch(batch).forEach { half ->
-                listOfFailedBatches.addLast(half)
+        //        filterEmptyAndDefectiveFromBatch(batch)
+        var body = buildBody(batch.listOfUnits)
+
+        //RETURN RESPONSE AS A WHOLE OBJECT INSTEAD OF JUST THE HTTP CODE
+//        var response = okHttpClientPost(bulkSubscribeProdUrl, body)
+        var response = okHttpClientPost(bulkSubscribeTestUrl, body)
+
+        if (response?.responseCode != 204) {
+
+            //Ask here if there are any units that failed to onboard, and add them to ignore list
+            if ( response?.units?.isNotEmpty()) {
+
+                //Ignore them, really.
+                batch.listOfUnits.removeAll(response?.units)
+
+                //Maybe do not bisect, and just add the list again, just in case
+//                listOfFailedBatches.addLast(batch)    //This line is commented because it seems we are sending already onboarded units
+            } else {
+                bisectBatch(batch).forEach { half ->
+                    listOfFailedBatches.addLast(half)
+                }
             }
         } else {
             listOfSuccessfulBatches.addLast(batch)
-            subscribedSoFar += batch.arrayOfUnits.size
+            subscribedSoFar += batch.listOfUnits.size
             println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe")
         }
     }
 }
 
-fun filterEmptyFromBatch(batch: UnitBatchOf500) {
-    println("Filtering empty from batch: " + batch.arrayOfUnits.toString())
-    batch.arrayOfUnits = batch.arrayOfUnits.filter { i -> i.isNotBlank() }.toTypedArray()
+/**
+ * DEPRECATED. Now the filtering occurs while reading, to avoid storing trash :)
+ */
+fun filterEmptyAndDefectiveFromBatch(batch: UnitBatchOf500) {
+    println("Filtering empty from batch: " + batch.listOfUnits.toString())
+    batch.listOfUnits = batch.listOfUnits
+            .filter { i -> i.isNotBlank() }
+            .toCollection(batch.listOfUnits)
+    batch.listOfUnits = batch.listOfUnits
+            .filter { i -> i.length == lengthOfUnitUrl && i.contains("/units/") }
+            .toCollection(batch.listOfUnits)
 }
 
 fun loadUnitsToBulkSubscribe() {
@@ -84,41 +110,51 @@ fun loadUnitsToBulkSubscribe() {
 
     var totalLines = 0
     var unitsOnPage = 0
-    var currentBatch: UnitBatchOf500 = UnitBatchOf500()
-    bufferedReader.forEachLine {
-        val tokens = it.split(",")
-        if (tokens.isNotEmpty()) {
+    var currentBatch = UnitBatchOf500()
+    var localReadOffset = readOffset
 
-            if (unitsOnPage == 0) {
-                currentBatch = UnitBatchOf500()
-                listOfBatchesOfUnits.add(currentBatch)
+    bufferedReader.forEachLine { rawLogLine ->
+        if (localReadOffset > 0) {
+            localReadOffset--
+        } else {
+            val tokens = rawLogLine.split(",")
+            if (tokens.isNotEmpty()) {
+                var unit = tokens[0]
+                //remove whitespaces
+                unit = unit.replace("\\s".toRegex(), "")
+
+                if (unit.isNotBlank()
+                        && unit.length == lengthOfUnitUrl
+                        && unit.contains("/units/")) {
+
+                    if (unitsOnPage == 0) {
+                        currentBatch = UnitBatchOf500()
+                        listOfBatchesOfUnits.add(currentBatch)
+                    }
+
+                    currentBatch.listOfUnits.add(unit)
+
+                    unitsOnPage++
+                    if (unitsOnPage == batchSize) {
+                        //Batch is full. Proceed with a new batch for next units
+                        unitsOnPage = 0
+                    }
+                    totalLines++
+                }
             }
-
-            var unit = tokens[0]
-            //remove whitespaces
-            unit =  unit.replace("\\s".toRegex(), "")
-            currentBatch.arrayOfUnits[unitsOnPage] = unit
-            unitsOnPage++
-
-            if (unitsOnPage == batchSize) {
-                //Batch is full. Proceed with a new batch for next units
-                unitsOnPage = 0
-            }
-            totalLines++
         }
     }
     totalUnitsToSubscribe = totalLines
 }
 
-fun buildBody(array: Array<String>): String? {
-    println("size of batch: " + array.size)
-    val gson = Gson()
-    val jsonifiedBody = gson.toJson(array)
+fun buildBody(list: LinkedList<String>): String? {
+    println("size of batch: " + list.size)
+    val jsonifiedBody = gson.toJson(list)
     println(jsonifiedBody.toString())
     return jsonifiedBody
 }
 
-fun okHttpClientPost(url: String, jsonBody: String?): Int {
+fun okHttpClientPost(url: String, jsonBody: String?): MyCustomResponse {
 
     var body: RequestBody? = RequestBody.create(JSON, jsonBody)
     val updateRequest = Request.Builder()
@@ -133,35 +169,71 @@ fun okHttpClientPost(url: String, jsonBody: String?): Int {
                     .writeTimeout(90, TimeUnit.SECONDS)
                     .build()
     val response = okHttpClient.newCall(updateRequest).execute()
-    if (response.code() == 204) {
-        println("Successful response: " + response.code() + " - " + response.body().toString())
+    val responseCode = response.code()
+
+    if (responseCode == 204) {
+        println("Successful response: " + responseCode + " - " + response.body().toString())
     } else {
-        println("NOT SUCCESSFUL RESPONSE: " + response.code() + " - " + response.body().toString())
+        println("NOT SUCCESSFUL RESPONSE: " + responseCode + " - " + response.body().toString())
     }
-    return response.code()
+
+    val jsonResponseBody = response.body()?.string()
+    val responseBodyObject = gson.fromJson(
+            jsonResponseBody,
+            SubscribeEndpointResponseBody::class.java)
+
+    val responseMessageString = response.message().toString()
+    val responseBodyString = responseBodyObject?.toString()
+
+//    println("Message: " + responseMessageString)
+//    println("Body: " + responseBodyString)
+
+    var units = LinkedList<String>()
+    if (responseCode == 500
+            && responseMessageString.contains("Internal Server Error")
+            && responseBodyString?.contains(unitsFailedToOnboardErrorMessage) ?: false) {
+
+        responseBodyObject.message
+                .substring(responseBodyObject.message.indexOf("["))
+                .removeSurrounding("[", "]")
+                .split(",").map { it.trim() }
+                .toCollection(units)
+
+//        println("Trying to parse units: " + units.size)
+    }
+
+    //Close connection D;
+    response?.body()?.close()
+
+    return MyCustomResponse(responseCode, responseMessageString, responseBodyString, units)
 }
 
 fun bisectBatch(batch: UnitBatchOf500): MutableList<UnitBatchOf500> {
     var halves: MutableList<UnitBatchOf500> = LinkedList()
 
-    if (batch.arrayOfUnits.size > 1) {
+    if (batch.listOfUnits.size > 1) {
         var half1 = UnitBatchOf500()
         var half2 = UnitBatchOf500()
 
         var lowerFirstHalf = 0
         var higherFirstHalf = 0
         var lowerSecondHalf = 0
-        var higherSecondHalf = batch.arrayOfUnits.size - 1
+        var higherSecondHalf = batch.listOfUnits.size - 1
 
-        higherFirstHalf = if (batch.arrayOfUnits.size % 2 == 0) {
-            (batch.arrayOfUnits.size / 2) - 1
+        higherFirstHalf = if (batch.listOfUnits.size % 2 == 0) {
+            (batch.listOfUnits.size / 2) - 1
         } else {
-            (floor(batch.arrayOfUnits.size.toDouble() / 2) - 1).toInt()
+            (floor(batch.listOfUnits.size.toDouble() / 2) - 1).toInt()
         }
         lowerSecondHalf = higherFirstHalf + 1
 
-        half1.arrayOfUnits = batch.arrayOfUnits.sliceArray(lowerFirstHalf..higherFirstHalf)
-        half2.arrayOfUnits = batch.arrayOfUnits.sliceArray(lowerSecondHalf..higherSecondHalf)
+        batch.listOfUnits
+                .slice(lowerFirstHalf..higherFirstHalf)
+                .toCollection(half1.listOfUnits)
+
+        batch.listOfUnits
+                .slice(lowerSecondHalf..higherSecondHalf)
+                .toCollection(half2.listOfUnits)
 
         halves.add(half1)
         halves.add(half2)
