@@ -13,34 +13,43 @@ import kotlin.math.floor
 
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
-const val csvInputFileName = "Maui Properties_test"
-
-//const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
-const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
-
+const val csvInputFileName = "Maui Properties"
 val readOffset = 0
+
+const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
+const val bulkSubscribeStagetUrl = "http://proxley-v2-stage.us-east-1-vpc-35196a52.slb-internal.stage.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
+const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
+
+
+var currentSubscribeEnvUrl = bulkSubscribeTestUrl
+val switchEnvToTryToUOnboardFailedTestOnStage = true
 const val lengthOfUnitUrl = 48
 const val batchSize = 500
 val unitsFailedToOnboardErrorMessage = "The following units failed to onboard:"
-
 var subscribedSoFar = 0
-var totalUnitsToSubscribe = 0
 
+var totalUnitsToSubscribe = 0
 var listOfBatchesOfUnits: LinkedList<UnitBatchOf500> = LinkedList()
+
 var listOfBatchesOfUnitsToSubscribe: LinkedList<UnitBatchOf500> = LinkedList()
 var listOfFailedBatches: LinkedList<UnitBatchOf500> = LinkedList()
-var listOfSuccessfulBatches: LinkedList<UnitBatchOf500> = LinkedList()
+var listOfFailedBatchesOnCurrentEnv: LinkedList<UnitBatchOf500> = LinkedList()
+var listOfSuccessfulBatchesOnProdOrTest: LinkedList<UnitBatchOf500> = LinkedList()
+var listOfSuccessfulBatchesOnStage: LinkedList<UnitBatchOf500> = LinkedList()
+
+var currentSuccessfulList = listOfSuccessfulBatchesOnProdOrTest
 
 
 val JSON = MediaType.parse("application/json; charset=utf-8")
 val gson = Gson()
+var failedToOnbard = false
 
 fun main(args: Array<String>) {
+    loadUnitsToBulkSubscribe()
     coroutinesApproach()
 }
 
 fun coroutinesApproach() = runBlocking {
-    loadUnitsToBulkSubscribe()
 
     println("no. of batches: " + listOfBatchesOfUnits.size)
 
@@ -48,12 +57,52 @@ fun coroutinesApproach() = runBlocking {
     do {
         println("Progress: $subscribedSoFar of $totalUnitsToSubscribe")
         runBlocking {
-            listOfFailedBatches = LinkedList()
+            //            listOfFailedBatches = LinkedList()
+            listOfFailedBatchesOnCurrentEnv = LinkedList()
             callSuscriptionOnListOfBatches(listOfBatchesOfUnitsToSubscribe)
-            listOfBatchesOfUnitsToSubscribe = listOfFailedBatches
+//            listOfBatchesOfUnitsToSubscribe = listOfFailedBatches
+            listOfBatchesOfUnitsToSubscribe = listOfFailedBatchesOnCurrentEnv
+        }
+        if (failedToOnbard && listOfFailedBatchesOnCurrentEnv.isNotEmpty()) {
+            //We start on test, then switch to stage
+            //switch to Stage URL
+            if (switchEnvToTryToUOnboardFailedTestOnStage && currentSubscribeEnvUrl == bulkSubscribeTestUrl) {
+                println("Switching ENV")
+                currentSubscribeEnvUrl = bulkSubscribeStagetUrl
+                currentSuccessfulList = listOfSuccessfulBatchesOnStage
+            } else {
+                break
+            }
+        } else {
+            break
         }
 
-    } while (!listOfFailedBatches.isEmpty())
+    } while (listOfFailedBatchesOnCurrentEnv.isNotEmpty())
+
+    //Join successfull batches and see which actually failed on both
+    var setOfAllSuccessfulUnits = linkedSetOf<String>()
+    listOfSuccessfulBatchesOnProdOrTest
+            .map(UnitBatchOf500::listOfUnits)
+            .forEach { listOfUnits ->
+                listOfUnits.toCollection(setOfAllSuccessfulUnits)
+            }
+    listOfSuccessfulBatchesOnStage
+            .map(UnitBatchOf500::listOfUnits)
+            .forEach { listOfUnits ->
+                listOfUnits.toCollection(setOfAllSuccessfulUnits)
+            }
+
+    //Failed units is dif between All units minus successfull
+    var setOfAllUnits = linkedSetOf<String>()
+            listOfBatchesOfUnitsToSubscribe
+            .flatMap { it.listOfUnits }
+            .toCollection(setOfAllUnits)
+
+    var setOfTotalFailedUnits = setOfAllUnits.minus(setOfAllSuccessfulUnits)
+    println("No. of FAILED overall units: " + setOfTotalFailedUnits.size)
+    println()
+    setOfTotalFailedUnits.forEach { print("$it, ") }
+    println("No. of FAILED overall units: " + setOfTotalFailedUnits.size)
 }
 
 fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatchOf500>) {
@@ -63,27 +112,60 @@ fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatchOf500>) {
 
         //RETURN RESPONSE AS A WHOLE OBJECT INSTEAD OF JUST THE HTTP CODE
 //        var response = okHttpClientPost(bulkSubscribeProdUrl, body)
-        var response = okHttpClientPost(bulkSubscribeTestUrl, body)
+        var response = okHttpClientPost(currentSubscribeEnvUrl, body)
 
         if (response?.responseCode != 204) {
 
             //Ask here if there are any units that failed to onboard, and add them to ignore list
-            if ( response?.units?.isNotEmpty()) {
+            if (response?.units?.isNotEmpty()) {
 
                 //Ignore them, really.
                 batch.listOfUnits.removeAll(response?.units)
 
-                //Maybe do not bisect, and just add the list again, just in case
-//                listOfFailedBatches.addLast(batch)    //This line is commented because it seems we are sending already onboarded units
+                //Add to failed to resubscribe on another env later
+                if (response.units != null) {
+                    //listOfFailedBatchesOnCurrentEnv.addLast(createCustomBatchFromListOfUnits(response!!.units))
+                    listOfFailedBatchesOnCurrentEnv.add(UnitBatchOf500(LinkedList(response?.units)))
+                }
+
+                //The others were successful
+                currentSuccessfulList.addLast(batch)
+                subscribedSoFar += batch.listOfUnits.size
+                println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe")
+
             } else {
                 bisectBatch(batch).forEach { half ->
                     listOfFailedBatches.addLast(half)
                 }
             }
         } else {
-            listOfSuccessfulBatches.addLast(batch)
+            currentSuccessfulList.addLast(batch)
             subscribedSoFar += batch.listOfUnits.size
             println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe")
+        }
+    }
+}
+
+fun createCustomBatchFromListOfUnits(units: List<String>) {
+    var currentBatch = UnitBatchOf500()
+    var unitsOnPage = 0
+    units.forEach { unit ->
+        if (unit.isNotBlank()
+                && unit.length == lengthOfUnitUrl
+                && unit.contains("/units/")) {
+
+            if (unitsOnPage == 0) {
+                currentBatch = UnitBatchOf500()
+                listOfFailedBatchesOnCurrentEnv.add(currentBatch)
+            }
+
+            currentBatch.listOfUnits.add(unit)
+
+            unitsOnPage++
+            if (unitsOnPage == batchSize) {
+                //Batch is full. Proceed with a new batch for next units
+                unitsOnPage = 0
+            }
         }
     }
 }
@@ -150,7 +232,7 @@ fun loadUnitsToBulkSubscribe() {
 fun buildBody(list: LinkedList<String>): String? {
     println("size of batch: " + list.size)
     val jsonifiedBody = gson.toJson(list)
-    println(jsonifiedBody.toString())
+//    println(jsonifiedBody.toString())
     return jsonifiedBody
 }
 
@@ -172,9 +254,11 @@ fun okHttpClientPost(url: String, jsonBody: String?): MyCustomResponse {
     val responseCode = response.code()
 
     if (responseCode == 204) {
-        println("Successful response: " + responseCode + " - " + response.body().toString())
+//        println("Successful response: " + responseCode + " - " + response.body().toString())
+        println("Successful response: $responseCode")
     } else {
-        println("NOT SUCCESSFUL RESPONSE: " + responseCode + " - " + response.body().toString())
+//        println("NOT SUCCESSFUL RESPONSE: " + responseCode + " - " + response.body().toString())
+        println("NOT SUCCESSFUL RESPONSE: $responseCode")
     }
 
     val jsonResponseBody = response.body()?.string()
@@ -187,12 +271,13 @@ fun okHttpClientPost(url: String, jsonBody: String?): MyCustomResponse {
 
 //    println("Message: " + responseMessageString)
 //    println("Body: " + responseBodyString)
-
+//
     var units = LinkedList<String>()
     if (responseCode == 500
             && responseMessageString.contains("Internal Server Error")
             && responseBodyString?.contains(unitsFailedToOnboardErrorMessage) ?: false) {
-
+        failedToOnbard = true
+        println("units failed to onbard")
         responseBodyObject.message
                 .substring(responseBodyObject.message.indexOf("["))
                 .removeSurrounding("[", "]")
