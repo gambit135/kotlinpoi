@@ -192,7 +192,9 @@ fun useDatesAndCellFormat(workbook: Workbook): Workbook {
             collectionDate > deadline -> println("collectionDate is after deadline")
 
             collectionDate < deadline -> println("collectionDate is before deadline")
+
             collectionDate == deadline -> println("collectionDate is equal to deadline")
+
             else -> System.out.println("How to get here?")
         }
 

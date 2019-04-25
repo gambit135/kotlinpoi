@@ -13,7 +13,7 @@ import kotlin.math.floor
 
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
-const val csvInputFileName = "Maui Properties"
+const val csvInputFileName = "HA Units to Resubscribe 04.24.19"
 val readOffset = 0
 
 const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
@@ -21,8 +21,9 @@ const val bulkSubscribeStagetUrl = "http://proxley-v2-stage.us-east-1-vpc-35196a
 const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 
 
-var currentSubscribeEnvUrl = bulkSubscribeTestUrl
-val switchEnvToTryToUOnboardFailedTestOnStage = true
+//CHANGE THIS WHEN SUBSCRIBING TO PROD/TEST/STAGE
+val switchEnvToTryToUOnboardFailedTestOnStage = false
+var currentSubscribeEnvUrl = bulkSubscribeProdUrl
 const val lengthOfUnitUrl = 48
 const val batchSize = 500
 val unitsFailedToOnboardErrorMessage = "The following units failed to onboard:"
@@ -94,7 +95,7 @@ fun coroutinesApproach() = runBlocking {
 
     //Failed units is dif between All units minus successfull
     var setOfAllUnits = linkedSetOf<String>()
-            listOfBatchesOfUnitsToSubscribe
+    listOfBatchesOfUnitsToSubscribe
             .flatMap { it.listOfUnits }
             .toCollection(setOfAllUnits)
 

@@ -48,9 +48,9 @@ val txBridgeSubscribed: MutableSet<String> = mutableSetOf()
 * Also, create a sorter / classifier on the Lambda to store messages in appropriate buckets*/
 fun main(args: Array<String>) {
     generateKinesisLogs()
-//    getYesterday()
-
 }
+
+//fun main(args: Array<String>)  = println("Hello, World!")
 
 fun generateKinesisLogs() {
 
