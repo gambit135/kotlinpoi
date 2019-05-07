@@ -13,8 +13,8 @@ import kotlin.math.floor
 
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
-const val csvInputFileName = "subscribeMe1RightNow"
-val readOffset = 0
+const val csvInputFileName = "unitsMissingFromExpedia"
+val readOffset = 2400
 
 const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 const val bulkSubscribeStagetUrl = "http://proxley-v2-stage.us-east-1-vpc-35196a52.slb-internal.stage.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
@@ -25,25 +25,28 @@ const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d90
 val switchEnvToTryToUOnboardFailedTestOnStage = false
 var currentSubscribeEnvUrl = bulkSubscribeProdUrl
 val lengthOfUnitUrl = 48
-const val batchSize = 500
+const val batchSize = 600
 val unitsFailedToOnboardErrorMessage = "The following units failed to onboard:"
-var subscribedSoFar = 0
+var subscribedSoFar = 0 + readOffset
+
+var failedToOnbardOnCurrentEnv = false
+val retryFailedSubscription = false
 
 var totalUnitsToSubscribe = 0
-var listOfBatchesOfUnits: LinkedList<UnitBatchOf500> = LinkedList()
+var listOfBatchesOfUnits: LinkedList<UnitBatch> = LinkedList()
 
-var listOfBatchesOfUnitsToSubscribe: LinkedList<UnitBatchOf500> = LinkedList()
-var listOfFailedBatches: LinkedList<UnitBatchOf500> = LinkedList()
-var listOfFailedBatchesOnCurrentEnv: LinkedList<UnitBatchOf500> = LinkedList()
-var listOfSuccessfulBatchesOnProdOrTest: LinkedList<UnitBatchOf500> = LinkedList()
-var listOfSuccessfulBatchesOnStage: LinkedList<UnitBatchOf500> = LinkedList()
+var listOfBatchesOfUnitsToSubscribe: LinkedList<UnitBatch> = LinkedList()
+var listOfFailedBatches: LinkedList<UnitBatch> = LinkedList()
+var listOfFailedBatchesOnCurrentEnv: LinkedList<UnitBatch> = LinkedList()
+var listOfSuccessfulBatchesOnProdOrTest: LinkedList<UnitBatch> = LinkedList()
+var listOfSuccessfulBatchesOnStage: LinkedList<UnitBatch> = LinkedList()
 
 var currentSuccessfulList = listOfSuccessfulBatchesOnProdOrTest
 
 
 val JSON = MediaType.parse("application/json; charset=utf-8")
 val gson = Gson()
-var failedToOnbard = false
+
 
 fun main(args: Array<String>) {
     loadUnitsToBulkSubscribe()
@@ -64,7 +67,7 @@ fun coroutinesApproach() = runBlocking {
 //            listOfBatchesOfUnitsToSubscribe = listOfFailedBatches
             listOfBatchesOfUnitsToSubscribe = listOfFailedBatchesOnCurrentEnv
         }
-        if (failedToOnbard && listOfFailedBatchesOnCurrentEnv.isNotEmpty()) {
+        if (failedToOnbardOnCurrentEnv && listOfFailedBatchesOnCurrentEnv.isNotEmpty()) {
             //We start on test, then switch to stage
             //switch to Stage URL
             if (switchEnvToTryToUOnboardFailedTestOnStage && currentSubscribeEnvUrl == bulkSubscribeTestUrl) {
@@ -78,17 +81,17 @@ fun coroutinesApproach() = runBlocking {
             break
         }
 
-    } while (listOfFailedBatchesOnCurrentEnv.isNotEmpty())
+    } while (listOfFailedBatchesOnCurrentEnv.isNotEmpty() && retryFailedSubscription)
 
     //Join successfull batches and see which actually failed on both
     var setOfAllSuccessfulUnits = linkedSetOf<String>()
     listOfSuccessfulBatchesOnProdOrTest
-            .map(UnitBatchOf500::listOfUnits)
+            .map(UnitBatch::listOfUnits)
             .forEach { listOfUnits ->
                 listOfUnits.toCollection(setOfAllSuccessfulUnits)
             }
     listOfSuccessfulBatchesOnStage
-            .map(UnitBatchOf500::listOfUnits)
+            .map(UnitBatch::listOfUnits)
             .forEach { listOfUnits ->
                 listOfUnits.toCollection(setOfAllSuccessfulUnits)
             }
@@ -106,8 +109,10 @@ fun coroutinesApproach() = runBlocking {
     println("No. of FAILED overall units: " + setOfTotalFailedUnits.size)
 }
 
-fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatchOf500>) {
-    list.forEach { batch ->
+
+
+fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatch>) {
+    list.forEachIndexed { index, batch->
         //        filterEmptyAndDefectiveFromBatch(batch)
         var body = buildBody(batch.listOfUnits)
 
@@ -126,13 +131,13 @@ fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatchOf500>) {
                 //Add to failed to resubscribe on another env later
                 if (response.units != null) {
                     //listOfFailedBatchesOnCurrentEnv.addLast(createCustomBatchFromListOfUnits(response!!.units))
-                    listOfFailedBatchesOnCurrentEnv.add(UnitBatchOf500(LinkedList(response?.units)))
+                    listOfFailedBatchesOnCurrentEnv.add(UnitBatch(LinkedList(response?.units)))
                 }
 
                 //The others were successful
                 currentSuccessfulList.addLast(batch)
                 subscribedSoFar += batch.listOfUnits.size
-                println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe")
+                println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe, batch $index of ${listOfBatchesOfUnits.size}")
 
             } else {
                 bisectBatch(batch).forEach { half ->
@@ -142,13 +147,13 @@ fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatchOf500>) {
         } else {
             currentSuccessfulList.addLast(batch)
             subscribedSoFar += batch.listOfUnits.size
-            println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe")
+            println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe, batch $index of ${listOfBatchesOfUnits.size}")
         }
     }
 }
 
 fun createCustomBatchFromListOfUnits(units: List<String>) {
-    var currentBatch = UnitBatchOf500()
+    var currentBatch = UnitBatch()
     var unitsOnPage = 0
     units.forEach { unit ->
         if (unit.isNotBlank()
@@ -156,7 +161,7 @@ fun createCustomBatchFromListOfUnits(units: List<String>) {
                 && unit.contains("/units/")) {
 
             if (unitsOnPage == 0) {
-                currentBatch = UnitBatchOf500()
+                currentBatch = UnitBatch()
                 listOfFailedBatchesOnCurrentEnv.add(currentBatch)
             }
 
@@ -174,7 +179,7 @@ fun createCustomBatchFromListOfUnits(units: List<String>) {
 /**
  * DEPRECATED. Now the filtering occurs while reading, to avoid storing trash :)
  */
-fun filterEmptyAndDefectiveFromBatch(batch: UnitBatchOf500) {
+fun filterEmptyAndDefectiveFromBatch(batch: UnitBatch) {
     println("Filtering empty from batch: " + batch.listOfUnits.toString())
     batch.listOfUnits = batch.listOfUnits
             .filter { i -> i.isNotBlank() }
@@ -193,7 +198,7 @@ fun loadUnitsToBulkSubscribe() {
 
     var totalLines = 0
     var unitsOnPage = 0
-    var currentBatch = UnitBatchOf500()
+    var currentBatch = UnitBatch()
     var localReadOffset = readOffset
 
     bufferedReader.forEachLine { rawLogLine ->
@@ -211,7 +216,7 @@ fun loadUnitsToBulkSubscribe() {
                         && unit.contains("/units/")) {
 
                     if (unitsOnPage == 0) {
-                        currentBatch = UnitBatchOf500()
+                        currentBatch = UnitBatch()
                         listOfBatchesOfUnits.add(currentBatch)
                     }
 
@@ -277,7 +282,7 @@ fun okHttpClientPost(url: String, jsonBody: String?): MyCustomResponse {
     if (responseCode == 500
             && responseMessageString.contains("Internal Server Error")
             && responseBodyString?.contains(unitsFailedToOnboardErrorMessage) ?: false) {
-        failedToOnbard = true
+        failedToOnbardOnCurrentEnv = true
         println("units failed to onbard")
         responseBodyObject.message
                 .substring(responseBodyObject.message.indexOf("["))
@@ -294,12 +299,12 @@ fun okHttpClientPost(url: String, jsonBody: String?): MyCustomResponse {
     return MyCustomResponse(responseCode, responseMessageString, responseBodyString, units)
 }
 
-fun bisectBatch(batch: UnitBatchOf500): MutableList<UnitBatchOf500> {
-    var halves: MutableList<UnitBatchOf500> = LinkedList()
+fun bisectBatch(batch: UnitBatch): MutableList<UnitBatch> {
+    var halves: MutableList<UnitBatch> = LinkedList()
 
     if (batch.listOfUnits.size > 1) {
-        var half1 = UnitBatchOf500()
-        var half2 = UnitBatchOf500()
+        var half1 = UnitBatch()
+        var half2 = UnitBatch()
 
         var lowerFirstHalf = 0
         var higherFirstHalf = 0

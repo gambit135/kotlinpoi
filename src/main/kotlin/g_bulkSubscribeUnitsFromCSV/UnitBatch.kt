@@ -3,13 +3,13 @@ package g_bulkSubscribeUnitsFromCSV
 import java.util.*
 
 
-class UnitBatchOf500(var listOfUnits: LinkedList<String> = LinkedList()) {
+class UnitBatch(var listOfUnits: LinkedList<String> = LinkedList()) {
 
 
     override fun equals(other: Any?): Boolean {
         if (javaClass != other?.javaClass) return false
 
-        other as UnitBatchOf500
+        other as UnitBatch
         return other.listOfUnits == listOfUnits
     }
 
