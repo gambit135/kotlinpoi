@@ -1,7 +1,10 @@
-package g_bulkSubscribeUnitsFromCSV
+package i_compareActiveUnitsExpediaHA
 
 import com.google.gson.Gson
-import kotlinx.coroutines.runBlocking
+import g_bulkSubscribeUnitsFromCSV.MyCustomResponse
+import g_bulkSubscribeUnitsFromCSV.SubscribeEndpointResponseBody
+import g_bulkSubscribeUnitsFromCSV.UnitBatch
+import kotlinx.coroutines.*
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,35 +16,36 @@ import kotlin.math.floor
 
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
-const val csvInputFileName = "unitsMissingFromExpedia"
+const val csvInputFileName = "units_test_NOW"
 val readOffset = 0
+val parallelRequests = 3
+const val batchSize = 200
 
 const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 const val bulkSubscribeStagetUrl = "http://proxley-v2-stage.us-east-1-vpc-35196a52.slb-internal.stage.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 
-
 //CHANGE THIS WHEN SUBSCRIBING TO PROD or TEST/STAGE
 val switchEnvToTryToUOnboardFailedTestOnStage = false
-var currentSubscribeEnvUrl = bulkSubscribeProdUrl
+var currentSubscribeEnvUrl = g_bulkSubscribeUnitsFromCSV.bulkSubscribeTestUrl
+
 val lengthOfUnitUrl = 48
-const val batchSize = 600
 val unitsFailedToOnboardErrorMessage = "The following units failed to onboard:"
-var subscribedSoFar = 0 + readOffset
+var processedSoFar = 0 + readOffset
 
 var failedToOnbardOnCurrentEnv = false
 val retryFailedSubscription = false
 
 var totalUnitsToSubscribe = 0
-var listOfBatchesOfUnits: LinkedList<UnitBatch> = LinkedList()
+var listOfBatchesOfUnits: ArrayList<UnitBatch> = ArrayList()
 
-var listOfBatchesOfUnitsToSubscribe: LinkedList<UnitBatch> = LinkedList()
+var listOfBatchesOfUnitsToSubscribe: ArrayList<UnitBatch> = ArrayList()
 var listOfFailedBatches: LinkedList<UnitBatch> = LinkedList()
-var listOfFailedBatchesOnCurrentEnv: LinkedList<UnitBatch> = LinkedList()
+var listOfFailedBatchesOnCurrentEnv: ArrayList<UnitBatch> = ArrayList()
 var listOfSuccessfulBatchesOnProdOrTest: LinkedList<UnitBatch> = LinkedList()
 var listOfSuccessfulBatchesOnStage: LinkedList<UnitBatch> = LinkedList()
 
-var currentSuccessfulList = listOfSuccessfulBatchesOnProdOrTest
+var currentSuccessfulList: LinkedList<UnitBatch> = LinkedList(listOfSuccessfulBatchesOnProdOrTest)
 
 
 val JSON = MediaType.parse("application/json; charset=utf-8")
@@ -57,12 +61,18 @@ fun coroutinesApproach() = runBlocking {
 
     println("no. of batches: " + listOfBatchesOfUnits.size)
 
-    listOfBatchesOfUnitsToSubscribe = LinkedList(listOfBatchesOfUnits)
+    listOfBatchesOfUnitsToSubscribe = ArrayList(listOfBatchesOfUnits)
     do {
-        println("Progress: $subscribedSoFar of $totalUnitsToSubscribe")
+        println("Progress: $processedSoFar of $totalUnitsToSubscribe")
         runBlocking {
-            listOfFailedBatchesOnCurrentEnv = LinkedList()
-            callSuscriptionOnListOfBatches(listOfBatchesOfUnitsToSubscribe)
+            listOfFailedBatchesOnCurrentEnv = ArrayList()
+
+            val job = launch {
+                callSuscriptionOnListOfBatchesSuspending(listOfBatchesOfUnitsToSubscribe)
+            }
+            job.join()
+
+//            callSuscriptionOnListOfBatchesSuspending(listOfBatchesOfUnitsToSubscribe)
             listOfBatchesOfUnitsToSubscribe = listOfFailedBatchesOnCurrentEnv
         }
         if (failedToOnbardOnCurrentEnv && listOfFailedBatchesOnCurrentEnv.isNotEmpty()) {
@@ -108,46 +118,71 @@ fun coroutinesApproach() = runBlocking {
 }
 
 
+suspend fun callSuscriptionOnListOfBatchesSuspending(list: ArrayList<UnitBatch>) {
 
-fun callSuscriptionOnListOfBatches(list: LinkedList<UnitBatch>) {
-    list.forEachIndexed { index, batch->
-        //        filterEmptyAndDefectiveFromBatch(batch)
-        var body = buildBody(batch.listOfUnits)
+    val listSize = list.size
+    var killLoop = false
 
-        //RETURN RESPONSE AS A WHOLE OBJECT INSTEAD OF JUST THE HTTP CODE
-//        var response = okHttpClientPost(bulkSubscribeProdUrl, body)
-        var response = okHttpClientPost(currentSubscribeEnvUrl, body)
+    for (index in 0 until listSize step parallelRequests) {
+        if (killLoop) break
+        var tempResults = mutableListOf<Deferred<String>>()
 
-        if (response?.responseCode != 204) {
+        for (j in index until index + parallelRequests) {
 
-            //Ask here if there are any units that failed to onboard, and add them to ignore list
-            if (response?.units?.isNotEmpty()) {
+            if (killLoop) break
 
-                //Ignore them, really.
-                batch.listOfUnits.removeAll(response?.units)
-
-                //Add to failed to resubscribe on another env later
-                if (response.units != null) {
-                    //listOfFailedBatchesOnCurrentEnv.addLast(createCustomBatchFromListOfUnits(response!!.units))
-                    listOfFailedBatchesOnCurrentEnv.add(UnitBatch(LinkedList(response?.units)))
+            if (j < listSize) { //Validate if j, j+1, j+2 ... is a valid index
+                var batch = list[j]
+                var resultXD = GlobalScope.async {
+                    var textResult = doRequestSuspending(batch, j, listSize)
+                    textResult
                 }
-
-                //The others were successful
-                currentSuccessfulList.addLast(batch)
-                subscribedSoFar += batch.listOfUnits.size
-                println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe, batch $index of ${listOfBatchesOfUnits.size + 1}")
-
+                tempResults.add(resultXD)
             } else {
-                bisectBatch(batch).forEach { half ->
-                    listOfFailedBatches.addLast(half)
-                }
+                killLoop = true
+                println("Killing Loop, since we are at $j index of batches (unexisting in list due to size)")
+                break
             }
-        } else {
-            currentSuccessfulList.addLast(batch)
-            subscribedSoFar += batch.listOfUnits.size
-            println("Subscribed so far: $subscribedSoFar of $totalUnitsToSubscribe, batch $index of ${listOfBatchesOfUnits.size + 1}")
         }
+        //Awaits till all 3 batches are processed before continuing to the next set of batches
+        tempResults.forEach { println(it.await()) }
     }
+}
+
+fun doRequestSuspending(batch: UnitBatch, index: Int, listSize: Int): String {
+    var body = buildBody(batch.listOfUnits)
+
+    //RETURN RESPONSE AS A WHOLE OBJECT INSTEAD OF JUST THE HTTP CODE
+    var response = okHttpClientPost(currentSubscribeEnvUrl, body)
+    if (response?.responseCode != 204) {
+        //Ask here if there are any units that failed to onboard, and add them to ignore list
+        if (response?.units?.isNotEmpty()) {
+
+            //Ignore them, really.
+            batch.listOfUnits.removeAll(response?.units)
+
+            //Add to failed to resubscribe on another env later
+            if (response.units != null) {
+                //listOfFailedBatchesOnCurrentEnv.addLast(createCustomBatchFromListOfUnits(response!!.units))
+                listOfFailedBatchesOnCurrentEnv.add(UnitBatch(LinkedList(response?.units)))
+            }
+
+            //The others were successful
+            currentSuccessfulList.addLast(batch)
+            processedSoFar += batch.listOfUnits.size
+            return "Processed so far: $processedSoFar of $totalUnitsToSubscribe, batch ${index + 1} of $listSize"
+
+        } else {
+            bisectBatch(batch).forEach { half ->
+                listOfFailedBatches.addLast(half)
+            }
+        }
+    } else {
+        currentSuccessfulList.addLast(batch)
+        processedSoFar += batch.listOfUnits.size
+        return "Processed so far: $processedSoFar of $totalUnitsToSubscribe, batch ${index + 1} of $listSize"
+    }
+    return ""
 }
 
 fun createCustomBatchFromListOfUnits(units: List<String>) {
