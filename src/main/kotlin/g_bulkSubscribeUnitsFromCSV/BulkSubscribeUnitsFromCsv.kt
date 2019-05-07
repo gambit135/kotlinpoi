@@ -13,7 +13,7 @@ import kotlin.math.floor
 
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
-const val csvInputFileName = "HA Units to Resubscribe 04.24.19"
+const val csvInputFileName = "subscribeMe1RightNow"
 val readOffset = 0
 
 const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
@@ -21,10 +21,10 @@ const val bulkSubscribeStagetUrl = "http://proxley-v2-stage.us-east-1-vpc-35196a
 const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d9087bbe.slb-internal.prod.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 
 
-//CHANGE THIS WHEN SUBSCRIBING TO PROD/TEST/STAGE
+//CHANGE THIS WHEN SUBSCRIBING TO PROD or TEST/STAGE
 val switchEnvToTryToUOnboardFailedTestOnStage = false
 var currentSubscribeEnvUrl = bulkSubscribeProdUrl
-const val lengthOfUnitUrl = 48
+val lengthOfUnitUrl = 48
 const val batchSize = 500
 val unitsFailedToOnboardErrorMessage = "The following units failed to onboard:"
 var subscribedSoFar = 0
