@@ -1,5 +1,6 @@
 package b_findUnitsToSuscribe
 
+import g_bulkSubscribeUnitsFromCSV.batchSize
 import org.apache.poi.ss.usermodel.*
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.*
@@ -94,20 +95,20 @@ fun writePostmanRequestBody() {
     var pw = PrintWriter(FileWriter(postmanOutputFileName + fileCount.toString() + ".txt"))
     var pageOfUnits: LinkedList<String>
     pageOfUnits = LinkedList()
-    if (unitsToSubscribe.values.size <= 500) {
-        println("processing less than 500 to subscribe")
+    if (unitsToSubscribe.values.size <= batchSize) {
+        println("processing less than $batchSize to subscribe")
         val urls = unitsToSubscribe.map { "\"${it.value.unitUrl}\"" }
         pw.println(urls.joinToString(prefix = "[", postfix = "]"))
         pw.close()
     } else {
-        println("processing MORE than 500 to subscribe")
+        println("processing MORE than $batchSize to subscribe")
         println("size of empty list is : " + pageOfUnits.size)
         unitsToSubscribe.values.forEachIndexed { index, element ->
             pageOfUnits.add("\"${element.unitUrl}\"")
             unitsPerPage++
             totalCount++
 
-            if (unitsPerPage == 500 || totalCount == unitsToSubscribe.values.size) {
+            if (unitsPerPage == batchSize || totalCount == unitsToSubscribe.values.size) {
                 pw.println(pageOfUnits.joinToString(prefix = "[", postfix = "]"))
                 pw.close()
                 //Flush to a new file
@@ -164,7 +165,7 @@ fun writeExcelReport() {
     unitsToSubscribe.values.forEachIndexed { i, element ->
         //println(i)
         val row = sheet.getRow(i + 1) ?: sheet.createRow(i + 1)
-        if (lootCounter == 500) {
+        if (lootCounter == batchSize) {
             lootCounter = 0
         } else {
 
