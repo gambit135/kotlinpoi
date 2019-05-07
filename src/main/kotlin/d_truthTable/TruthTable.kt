@@ -1,11 +1,27 @@
 package d_truthTable
 
-import kotlin.math.max
+
+//MODIFY THIS WITH THE ECOM UNIT DERIVED DATA
+val myOfflinePayAdopted = false
+val myofflinePayDeprecated = false
+val myOlbIntegrated = false
+val mylodgingTaxesOnOFPPropertiesIsEnabled = true
+val myOnlinePayAdopted = true
+
 
 
 fun main(args: Array<String>) {
     println(message = "Hello, Kotlin!")
-    truthTable()
+    //truthTable()
+    var truth =
+    calculateTruth(
+            offlinePayAdoptedElement =  myOfflinePayAdopted,
+            offlinePayDeprecatedElement = myofflinePayDeprecated,
+            olbIntegratedElement =  myOlbIntegrated,
+            lodgingTaxesOnOFPPropertiesIsEnabledElement = mylodgingTaxesOnOFPPropertiesIsEnabled,
+            onlinePayAdoptedElement = myOnlinePayAdopted
+            )
+    println(truth)
 }
 
 fun truthTable() {
@@ -68,7 +84,7 @@ fun calculateTruth(
         olbIntegratedElement: Boolean,
         onlinePayAdoptedElement: Boolean,
         offlinePayAdoptedElement: Boolean,
-        offlinePayDeprecatedElement: Boolean )=
+        offlinePayDeprecatedElement: Boolean) =
         shouldEnableUnitLodgingTax(
                 lodgingTaxesOnOFPPropertiesIsEnabledElement,
                 olbIntegratedElement,
