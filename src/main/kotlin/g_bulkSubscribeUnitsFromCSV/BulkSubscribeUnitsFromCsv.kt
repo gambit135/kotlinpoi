@@ -14,7 +14,7 @@ import kotlin.math.floor
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
 const val csvInputFileName = "unitsMissingFromExpedia"
-val readOffset = 0
+val readOffset = 769800
 
 const val bulkSubscribeTestUrl = "http://proxley-v2-test.us-east-1-vpc-88394aef.slb-internal.test.aws.away.black/v1/addressEvents/bulkSubscribeUnits"
 const val bulkSubscribeStagetUrl = "http://proxley-v2-stage.us-east-1-vpc-35196a52.slb-internal.stage.aws.away.black/v1/addressEvents/bulkSubscribeUnits"

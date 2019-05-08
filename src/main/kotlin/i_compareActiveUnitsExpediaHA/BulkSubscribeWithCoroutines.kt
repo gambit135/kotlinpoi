@@ -16,8 +16,8 @@ import kotlin.math.floor
 
 const val workingFolder = "/Users/atellez/Documents/To-Do/extractUnitMetaData/"
 const val fileInExtension = ".csv"
-const val csvInputFileName = "units_test_NOW"
-val readOffset = 0
+const val csvInputFileName = "unitsMissingFromExpedia"
+val readOffset = 769800
 val parallelRequests = 3
 const val batchSize = 200
 
@@ -27,7 +27,7 @@ const val bulkSubscribeProdUrl = "http://proxley-v2-production.us-east-1-vpc-d90
 
 //CHANGE THIS WHEN SUBSCRIBING TO PROD or TEST/STAGE
 val switchEnvToTryToUOnboardFailedTestOnStage = false
-var currentSubscribeEnvUrl = g_bulkSubscribeUnitsFromCSV.bulkSubscribeTestUrl
+var currentSubscribeEnvUrl = bulkSubscribeProdUrl
 
 val lengthOfUnitUrl = 48
 val unitsFailedToOnboardErrorMessage = "The following units failed to onboard:"
